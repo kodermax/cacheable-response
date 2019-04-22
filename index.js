@@ -10,12 +10,12 @@ const getEtag = require('etag')
 const { URL } = require('url')
 const Keyv = require('keyv')
 
-const getKey = url => {
+const getKey = (url, isMobile) => {
   const { origin } = new URL(url)
   const baseKey = normalizeUrl(url, {
     removeQueryParameters: [/^utm_\w+/i, 'force', 'filter', 'ref']
   })
-  return baseKey.replace(origin, '').replace('/?', '')
+  return `isMoblie=${isMobile}&` + baseKey.replace(origin, '').replace('/?', '')
 }
 
 const toSeconds = ms => Math.floor(ms / 1000)
@@ -31,7 +31,7 @@ const createSetHeaders = ({ revalidate }) => {
       'Cache-Control',
       `public, must-revalidate, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=${
         hasForce ? 0 : toSeconds(revalidate(ttl))
-      }`
+        }`
     )
 
     res.setHeader('X-Cache-Status', isHit ? 'HIT' : 'MISS')
@@ -41,14 +41,14 @@ const createSetHeaders = ({ revalidate }) => {
 }
 
 module.exports = ({
-  cache = new Keyv({ namespace: 'ssr' }),
-  compress: enableCompression = false,
-  get,
-  send,
-  revalidate = ttl => ttl / 24,
-  ttl: defaultTtl = 7200000,
-  ...compressOpts
-} = {}) => {
+                    cache = new Keyv({ namespace: 'ssr' }),
+                    compress: enableCompression = false,
+                    get,
+                    send,
+                    revalidate = ttl => ttl / 24,
+                    ttl: defaultTtl = 7200000,
+                    ...compressOpts
+                  } = {}) => {
   assert(get, '.get required')
   assert(send, '.send required')
 
@@ -65,7 +65,14 @@ module.exports = ({
     const hasForce = Boolean(
       req.query ? req.query.force : parse(req.url.split('?')[1]).force
     )
-    const key = getKey(urlResolve('http://localhost', req.url))
+    let isMobile = false
+    if (req.header('CloudFront-Is-Mobile-Viewer')) {
+      isMobile = req.header('CloudFront-Is-Mobile-Viewer') === 'true'
+    } else {
+      const mobileRE = /(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series[46]0|symbian|treo|up\.(browser|link)|vodafone|wap|windows (ce|phone)|xda|xiino/i
+      isMobile = mobileRE.test(req.header('User-agent'))
+    }
+    const key = getKey(urlResolve('http://localhost', req.url), isMobile)
     const cachedResult = await decompress(await cache.get(key))
     const isHit = !hasForce && cachedResult !== undefined
 
